@@ -1,0 +1,15 @@
+[package]
+name = "day-planner"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = "0.4.44"
+crossterm = "0.29.0"
+dirs = "6.0.0"
+ratatui = "0.30.0"
+regex = "1.12.3"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tui-input = "0.15.0"
+uuid = { version = "1.22.0", features = ["v4"] }
