@@ -44,10 +44,10 @@ pub fn draw(f: &mut Frame, app: &App) {
         .get(&date_str_key)
         .cloned()
         .unwrap_or_default();
-    
+
     let total_height = main_chunks[1].height;
     let mut constraints = Vec::new();
-    
+
     // Calculate heights manually to ensure at least 1 line per task
     // using Constraint::Ratio for the base, but we'll check later
     for task in &tasks {
@@ -102,22 +102,22 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Render Tasks on the Right
     for (i, task) in tasks.iter().enumerate() {
         let mut chunk = task_chunks[i];
-        
+
         // Final fallback: if Layout gave us 0, force 1 line
         if chunk.height == 0 && total_height > 0 {
-             chunk.height = 1;
+            chunk.height = 1;
         }
 
         if chunk.height > 0 {
             let h = task.duration_mins / 60;
             let m = task.duration_mins % 60;
             let title = format!(" [{}] {} ({}h {}m) ", task.start_time, task.name, h, m);
-            
+
             let block = if chunk.height == 1 {
                 // For 1-line height, use a compact representation
                 Block::default()
                     .borders(Borders::TOP)
-                    .title(format!(" {} ({}m) ", task.name, task.duration_mins))
+                    .title(title)
                     .style(Style::default().fg(Color::Cyan))
             } else {
                 Block::default()
