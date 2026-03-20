@@ -38,27 +38,50 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     // Tasks and Gaps on the Right
     let date_str_key = app.current_date.to_string();
-    let tasks = app
+    let mut tasks = app
         .data
         .tasks
         .get(&date_str_key)
         .cloned()
         .unwrap_or_default();
 
-    let total_height = main_chunks[1].height;
-    let mut constraints = Vec::new();
+    // Sort tasks by start time
+    tasks.sort_by_key(|t| t.start_mins_from_8am());
 
-    // Calculate heights manually to ensure at least 1 line per task
-    // using Constraint::Ratio for the base, but we'll check later
-    for task in &tasks {
-        // We use Ratio but the Layout will be instructed to respect Min(1) if possible
-        constraints.push(Constraint::Ratio(task.duration_mins, 480));
+    let total_height = main_chunks[1].height;
+    
+    // We'll build a list of "DisplayItems" which are either Tasks or Gaps
+    #[derive(Clone)]
+    enum DisplayItem {
+        Task(crate::models::TaskRecord),
+        Gap(u32),
     }
 
-    let total_spent: u32 = tasks.iter().map(|t| t.duration_mins).sum();
-    let gap = 480_u32.saturating_sub(total_spent);
-    if gap > 0 {
-        constraints.push(Constraint::Ratio(gap, 480));
+    let mut display_items = Vec::new();
+    let mut current_min: i32 = 0; // Starts at 8:00 AM
+
+    for task in tasks {
+        let start_min = task.start_mins_from_8am();
+        if start_min > current_min {
+            display_items.push(DisplayItem::Gap((start_min - current_min) as u32));
+            current_min = start_min;
+        }
+        display_items.push(DisplayItem::Task(task.clone()));
+        current_min += task.duration_mins as i32;
+    }
+
+    // Add trailing gap to reach 4:00 PM (480 mins) if necessary
+    if current_min < 480 {
+        display_items.push(DisplayItem::Gap((480 - current_min) as u32));
+    }
+
+    let mut constraints = Vec::new();
+    for item in &display_items {
+        let duration = match item {
+            DisplayItem::Task(t) => t.duration_mins,
+            DisplayItem::Gap(g) => *g,
+        };
+        constraints.push(Constraint::Ratio(duration, 480.max(current_min as u32)));
     }
 
     // Split for both timeline labels and tasks to ensure they align
@@ -72,78 +95,69 @@ pub fn draw(f: &mut Frame, app: &App) {
         .constraints(constraints)
         .split(main_chunks[0]);
 
-    // Render Timeline on the Left
-    let mut current_min = 0;
+    // Render Timeline and Tasks
+    let mut running_min = 0;
     let mut last_label_y = 0;
-    for (i, task) in tasks.iter().enumerate() {
+
+    for (i, item) in display_items.iter().enumerate() {
         let chunk = timeline_chunks[i];
+        let task_chunk = task_chunks[i];
+
+        // Render Label on the Left
         if chunk.height > 0 && (i == 0 || chunk.y >= last_label_y + 1) {
-            let h = 8 + current_min / 60;
-            let m = current_min % 60;
+            let h = 8 + running_min / 60;
+            let m = running_min % 60;
             let time_label = format!(" {:02}:{:02}", h, m);
             let p = Paragraph::new(time_label).style(Style::default().fg(Color::DarkGray));
             f.render_widget(p, chunk);
             last_label_y = chunk.y;
         }
-        current_min += task.duration_mins;
-    }
 
-    if gap > 0 {
-        let chunk = timeline_chunks[tasks.len()];
-        if chunk.height > 0 && chunk.y >= last_label_y + 1 {
-            let h = 8 + current_min / 60;
-            let m = current_min % 60;
-            let time_label = format!("{:02}:{:02}", h, m);
-            let p = Paragraph::new(time_label).style(Style::default().fg(Color::DarkGray));
-            f.render_widget(p, chunk);
-        }
-    }
+        // Render Content on the Right
+        match item {
+            DisplayItem::Task(task) => {
+                let mut content_chunk = task_chunk;
+                if content_chunk.height == 0 && total_height > 0 {
+                    content_chunk.height = 1;
+                }
 
-    // Render Tasks on the Right
-    for (i, task) in tasks.iter().enumerate() {
-        let mut chunk = task_chunks[i];
+                if content_chunk.height > 0 {
+                    let h = task.duration_mins / 60;
+                    let m = task.duration_mins % 60;
+                    let title = format!(" [{}] {} ({}h {}m) ", task.start_time, task.name, h, m);
 
-        // Final fallback: if Layout gave us 0, force 1 line
-        if chunk.height == 0 && total_height > 0 {
-            chunk.height = 1;
-        }
-
-        if chunk.height > 0 {
-            let h = task.duration_mins / 60;
-            let m = task.duration_mins % 60;
-            let title = format!(" [{}] {} ({}h {}m) ", task.start_time, task.name, h, m);
-
-            let block = if chunk.height == 1 {
-                // For 1-line height, use a compact representation
-                Block::default()
-                    .borders(Borders::TOP)
-                    .title(title)
-                    .style(Style::default().fg(Color::Cyan))
-            } else {
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(title)
-                    .style(Style::default().bg(Color::Rgb(40, 40, 60)))
-            };
-            f.render_widget(block, chunk);
-        }
-    }
-
-    if gap > 0 {
-        let chunk = task_chunks[tasks.len()];
-        if chunk.height > 0 {
-            let h = gap / 60;
-            let m = gap % 60;
-            let title = format!(" GAP: {}h {}m ", h, m);
-            let gap_block = Block::default()
-                .borders(Borders::ALL)
-                .style(
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::DIM),
-                )
-                .title(title);
-            f.render_widget(gap_block, chunk);
+                    let block = if content_chunk.height == 1 {
+                        Block::default()
+                            .borders(Borders::TOP)
+                            .title(title)
+                            .style(Style::default().fg(Color::Cyan))
+                    } else {
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(title)
+                            .style(Style::default().bg(Color::Rgb(40, 40, 60)))
+                    };
+                    f.render_widget(block, content_chunk);
+                }
+                running_min += task.duration_mins as i32;
+            }
+            DisplayItem::Gap(gap) => {
+                if task_chunk.height > 0 {
+                    let h = gap / 60;
+                    let m = gap % 60;
+                    let title = format!(" GAP: {}h {}m ", h, m);
+                    let gap_block = Block::default()
+                        .borders(Borders::ALL)
+                        .style(
+                            Style::default()
+                                .fg(Color::DarkGray)
+                                .add_modifier(Modifier::DIM),
+                        )
+                        .title(title);
+                    f.render_widget(gap_block, task_chunk);
+                }
+                running_min += *gap as i32;
+            }
         }
     }
 
