@@ -20,6 +20,7 @@ This document outlines the design and requirements for the Day Planner JIRA time
 - **Date Browsing**: Support for navigating through past and future days to view or add records.
 - **Persistent Storage**: Every change is immediately synchronized with the underlying JSON file.
 - **Date-Specific Records**: Tasks are organized and saved for the specific date they were reported on.
+- **Task Editing**: Allows modifying existing tasks by entering edit mode (Press 'E'), navigating with Arrow keys, and updating with 'Enter'.
 
 ## UI
 

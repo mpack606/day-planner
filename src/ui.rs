@@ -60,7 +60,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let mut display_items = Vec::new();
     let mut current_min: i32 = 0; // Starts at 8:00 AM
 
-    for task in tasks {
+    for task in &tasks {
         let start_min = task.start_mins_from_8am();
         if start_min > current_min {
             display_items.push(DisplayItem::Gap((start_min - current_min) as u32));
@@ -126,16 +126,27 @@ pub fn draw(f: &mut Frame, app: &App) {
                     let m = task.duration_mins % 60;
                     let title = format!(" [{}] {} ({}h {}m) ", task.start_time, task.name, h, m);
 
+                    let is_selected = app.edit_mode && app.selected_task_index == Some(tasks.iter().position(|t| t.id == task.id).unwrap_or(999));
+
                     let block = if content_chunk.height == 1 {
                         Block::default()
                             .borders(Borders::TOP)
                             .title(title)
-                            .style(Style::default().fg(Color::Cyan))
+                            .style(if is_selected {
+                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default().fg(Color::Cyan)
+                            })
                     } else {
-                        Block::default()
+                        let mut block = Block::default()
                             .borders(Borders::ALL)
                             .title(title)
-                            .style(Style::default().bg(Color::Rgb(40, 40, 60)))
+                            .style(Style::default().bg(Color::Rgb(40, 40, 60)));
+                        
+                        if is_selected {
+                            block = block.border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+                        }
+                        block
                     };
                     f.render_widget(block, content_chunk);
                 }
@@ -162,20 +173,22 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     // Input Box
-    let input_title = if app.input_mode {
+    let input_title = if app.edit_mode {
+        "Edit record (Arrows to cycle, Enter to save, Esc to cancel)"
+    } else if app.input_mode {
         "Enter record (e.g. Task 1h 30m 10:00 AM) - Press Esc to cancel"
     } else {
-        "Press Enter to add record"
+        "Press Enter to add record | Press E to edit"
     };
 
     let input_paragraph = Paragraph::new(app.input.value())
-        .style(match app.input_mode {
+        .style(match app.input_mode || app.edit_mode {
             true => Style::default().fg(Color::Yellow),
             false => Style::default(),
         })
         .block(Block::default().borders(Borders::ALL).title(input_title));
     f.render_widget(input_paragraph, chunks[2]);
-    if app.input_mode {
+    if app.input_mode || app.edit_mode {
         f.set_cursor_position((
             chunks[2].x + app.input.visual_cursor() as u16 + 1,
             chunks[2].y + 1,
@@ -183,7 +196,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     // Footer
-    let footer_text = "<Left/Right>: Change Date | <Enter>: Add Task | <Q>: Quit";
+    let footer_text = "<Left/Right>: Date | <Enter>: Add | <E>: Edit | <Q>: Quit";
     let footer = Paragraph::new(footer_text).style(Style::default().fg(Color::DarkGray));
     f.render_widget(footer, chunks[3]);
 }

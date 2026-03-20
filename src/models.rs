@@ -12,8 +12,21 @@ pub struct TaskRecord {
     pub duration_mins: u32,
     pub start_time: String,
 }
-
 impl TaskRecord {
+    pub fn to_input_string(&self) -> String {
+        let h = self.duration_mins / 60;
+        let m = self.duration_mins % 60;
+        let mut parts = vec![self.name.clone()];
+        if h > 0 {
+            parts.push(format!("{}h", h));
+        }
+        if m > 0 {
+            parts.push(format!("{}m", m));
+        }
+        parts.push(self.start_time.clone());
+        parts.join(" ")
+    }
+
     pub fn start_mins_from_8am(&self) -> i32 {
         let parts: Vec<&str> = self.start_time.split_whitespace().collect();
         if parts.len() < 2 {

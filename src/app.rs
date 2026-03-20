@@ -9,6 +9,8 @@ pub struct App {
     pub current_date: NaiveDate,
     pub input: Input,
     pub input_mode: bool,
+    pub edit_mode: bool,
+    pub selected_task_index: Option<usize>,
     pub should_quit: bool,
 }
 
@@ -21,6 +23,8 @@ impl App {
             current_date,
             input: Input::default(),
             input_mode: false,
+            edit_mode: false,
+            selected_task_index: None,
             should_quit: false,
         }
     }
@@ -37,14 +41,59 @@ impl App {
         save_data(&self.data);
     }
 
+    pub fn enter_edit_mode(&mut self) {
+        let date_str = self.current_date.to_string();
+        if let Some(tasks) = self.data.tasks.get_mut(&date_str) {
+            if !tasks.is_empty() {
+                tasks.sort_by_key(|t| t.start_mins_from_8am());
+                self.edit_mode = true;
+                self.input_mode = false;
+                self.selected_task_index = Some(0);
+                self.update_input_with_selected();
+            }
+        }
+    }
+
+    pub fn move_selection_up(&mut self) {
+        if let Some(index) = self.selected_task_index {
+            if index > 0 {
+                self.selected_task_index = Some(index - 1);
+                self.update_input_with_selected();
+            }
+        }
+    }
+
+    pub fn move_selection_down(&mut self) {
+        let date_str = self.current_date.to_string();
+        if let Some(tasks) = self.data.tasks.get(&date_str) {
+            if let Some(index) = self.selected_task_index {
+                if index < tasks.len() - 1 {
+                    self.selected_task_index = Some(index + 1);
+                    self.update_input_with_selected();
+                }
+            }
+        }
+    }
+
+    fn update_input_with_selected(&mut self) {
+        let date_str = self.current_date.to_string();
+        if let Some(tasks) = self.data.tasks.get(&date_str) {
+            if let Some(index) = self.selected_task_index {
+                if let Some(task) = tasks.get(index) {
+                    let input_str = task.to_input_string();
+                    self.input = Input::new(input_str);
+                }
+            }
+        }
+    }
+
     pub fn handle_submit(&mut self) {
         let input_val = self.input.value().trim();
         if input_val.is_empty() {
             return;
         }
 
-        // Match format like "WMI-1234 3h 25m 10:00 AM" or "Task 1h 02:30 PM"
-        let re = Regex::new(r"^(?P<name>.+?)\s+(?:(?P<h>\d+)h)?\s*(?:(?P<m>\d+)m)?\s*(?P<start>\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))$").unwrap();
+        let re = Regex::new(r"^(?P<name>.+?)\s+(?:(?P<h>\d+)h)?\s*(?:(?P<m>\d+)m)?\s*(?P<start>\d{1,2}:\d{2}\s*(?:AM|PM|am|pm|Am|Pm))$").unwrap();
         
         if let Some(caps) = re.captures(input_val) {
             let name = caps.name("name").map_or("", |m| m.as_str()).to_string();
@@ -54,14 +103,31 @@ impl App {
             
             let total_mins = hours * 60 + mins;
             if total_mins > 0 {
-                let rec = TaskRecord {
-                    id: Uuid::new_v4().to_string(),
-                    name,
-                    duration_mins: total_mins,
-                    start_time,
-                };
                 let date_str = self.current_date.to_string();
-                self.data.tasks.entry(date_str).or_insert_with(Vec::new).push(rec);
+                
+                if self.edit_mode {
+                    if let Some(index) = self.selected_task_index {
+                        if let Some(tasks) = self.data.tasks.get_mut(&date_str) {
+                            tasks.sort_by_key(|t| t.start_mins_from_8am());
+                            if let Some(task) = tasks.get_mut(index) {
+                                task.name = name;
+                                task.duration_mins = total_mins;
+                                task.start_time = start_time;
+                            }
+                        }
+                    }
+                    self.edit_mode = false;
+                    self.selected_task_index = None;
+                } else {
+                    let rec = TaskRecord {
+                        id: Uuid::new_v4().to_string(),
+                        name,
+                        duration_mins: total_mins,
+                        start_time,
+                    };
+                    self.data.tasks.entry(date_str).or_insert_with(Vec::new).push(rec);
+                }
+                
                 self.save();
                 self.input.reset();
                 self.input_mode = false;
