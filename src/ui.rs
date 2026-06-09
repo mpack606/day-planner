@@ -16,7 +16,15 @@ pub fn draw(f: &mut Frame, app: &App) {
         .split(f.area());
 
     // Header
-    let date_str = app.current_date.format("%a %d %b %Y").to_string();
+    let total_mins = app.get_total_duration_mins();
+    let h = total_mins / 60;
+    let m = total_mins % 60;
+    let date_str = format!(
+        "{} | {}h {}m",
+        app.current_date.format("%a %d %b %Y"),
+        h,
+        m
+    );
     let header = Paragraph::new(date_str)
         .style(Style::default().add_modifier(Modifier::BOLD))
         .block(Block::default().borders(Borders::ALL).title("Day Planner"));

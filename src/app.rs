@@ -37,6 +37,13 @@ impl App {
         self.current_date = self.current_date.pred_opt().unwrap_or(self.current_date);
     }
 
+    pub fn get_total_duration_mins(&self) -> u32 {
+        let date_str = self.current_date.to_string();
+        self.data.tasks.get(&date_str)
+            .map(|tasks| tasks.iter().map(|t| t.duration_mins).sum())
+            .unwrap_or(0)
+    }
+
     pub fn save(&self) {
         save_data(&self.data);
     }
@@ -133,5 +140,46 @@ impl App {
                 self.input_mode = false;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::TaskRecord;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_get_total_duration_mins() {
+        let date = NaiveDate::from_ymd_opt(2023, 10, 27).unwrap();
+        let date_str = date.to_string();
+        
+        let mut tasks = HashMap::new();
+        tasks.insert(date_str, vec![
+            TaskRecord {
+                id: "1".to_string(),
+                name: "Task 1".to_string(),
+                duration_mins: 60,
+                start_time: "08:00 AM".to_string(),
+            },
+            TaskRecord {
+                id: "2".to_string(),
+                name: "Task 2".to_string(),
+                duration_mins: 30,
+                start_time: "09:00 AM".to_string(),
+            },
+        ]);
+
+        let app = App {
+            data: AppData { tasks },
+            current_date: date,
+            input: Input::default(),
+            input_mode: false,
+            edit_mode: false,
+            selected_task_index: None,
+            should_quit: false,
+        };
+
+        assert_eq!(app.get_total_duration_mins(), 90);
     }
 }
