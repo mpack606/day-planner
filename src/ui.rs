@@ -84,12 +84,18 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     let mut constraints = Vec::new();
+    let total_dur = 480.max(current_min as u32);
     for item in &display_items {
         let duration = match item {
             DisplayItem::Task(t) => t.duration_mins,
             DisplayItem::Gap(g) => *g,
         };
-        constraints.push(Constraint::Ratio(duration, 480.max(current_min as u32)));
+        let h = (duration as f64 / total_dur as f64 * total_height as f64).round() as u16;
+        let constraint = match item {
+            DisplayItem::Task(_) => Constraint::Min(h.max(1)),
+            DisplayItem::Gap(_) => Constraint::Min(h),
+        };
+        constraints.push(constraint);
     }
 
     // Split for both timeline labels and tasks to ensure they align
@@ -124,11 +130,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         // Render Content on the Right
         match item {
             DisplayItem::Task(task) => {
-                let mut content_chunk = task_chunk;
-                if content_chunk.height == 0 && total_height > 0 {
-                    content_chunk.height = 1;
-                }
-
+                let content_chunk = task_chunk;
                 if content_chunk.height > 0 {
                     let h = task.duration_mins / 60;
                     let m = task.duration_mins % 60;
