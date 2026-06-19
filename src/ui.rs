@@ -54,7 +54,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         .unwrap_or_default();
 
     // Sort tasks by start time
-    tasks.sort_by_key(|t| t.start_mins_relative_to(app.data.start_mins));
+    let start_mins = app.data.get_start_mins(&date_str_key);
+    tasks.sort_by_key(|t| t.start_mins_relative_to(start_mins));
 
     let total_height = main_chunks[1].height;
     
@@ -69,7 +70,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let mut current_min: i32 = 0; // Starts at start_mins
 
     for task in &tasks {
-        let start_min = task.start_mins_relative_to(app.data.start_mins);
+        let start_min = task.start_mins_relative_to(start_mins);
         if start_min > current_min {
             display_items.push(DisplayItem::Gap((start_min - current_min) as u32));
             current_min = start_min;
@@ -119,7 +120,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
         // Render Label on the Left
         if chunk.height > 0 && (i == 0 || chunk.y >= last_label_y + 1) {
-            let total_mins = app.data.start_mins + running_min;
+            let total_mins = start_mins + running_min;
             let h = (total_mins / 60) % 24;
             let m = total_mins % 60;
             let time_label = format!(" {:02}:{:02}", h, m);

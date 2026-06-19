@@ -50,9 +50,10 @@ impl App {
 
     pub fn enter_edit_mode(&mut self) {
         let date_str = self.current_date.to_string();
+        let start_mins = self.data.get_start_mins(&date_str);
         if let Some(tasks) = self.data.tasks.get_mut(&date_str) {
             if !tasks.is_empty() {
-                tasks.sort_by_key(|t| t.start_mins_relative_to(self.data.start_mins));
+                tasks.sort_by_key(|t| t.start_mins_relative_to(start_mins));
                 self.edit_mode = true;
                 self.input_mode = false;
                 self.selected_task_index = Some(0);
@@ -114,8 +115,9 @@ impl App {
                 
                 if self.edit_mode {
                     if let Some(index) = self.selected_task_index {
+                        let start_mins = self.data.get_start_mins(&date_str);
                         if let Some(tasks) = self.data.tasks.get_mut(&date_str) {
-                            tasks.sort_by_key(|t| t.start_mins_relative_to(self.data.start_mins));
+                            tasks.sort_by_key(|t| t.start_mins_relative_to(start_mins));
                             if let Some(task) = tasks.get_mut(index) {
                                 task.name = name;
                                 task.duration_mins = total_mins;
@@ -143,7 +145,10 @@ impl App {
     }
 
     pub fn shift_start_time(&mut self, delta_mins: i32) {
-        self.data.start_mins = (self.data.start_mins + delta_mins).clamp(0, 1410); // 1410 = 23:30
+        let date_str = self.current_date.to_string();
+        let current_start = self.data.get_start_mins(&date_str);
+        let new_start = (current_start + delta_mins).clamp(0, 1410); // 1410 = 23:30
+        self.data.daily_start_mins.insert(date_str, new_start);
         self.save();
     }
 }
@@ -176,7 +181,11 @@ mod tests {
         ]);
 
         let app = App {
-            data: AppData { tasks, start_mins: 480 },
+            data: AppData {
+                tasks,
+                start_mins: 480,
+                daily_start_mins: HashMap::new(),
+            },
             current_date: date,
             input: Input::default(),
             input_mode: false,
@@ -186,5 +195,36 @@ mod tests {
         };
 
         assert_eq!(app.get_total_duration_mins(), 90);
+    }
+
+    #[test]
+    fn test_daily_start_time_shift() {
+        let date1 = NaiveDate::from_ymd_opt(2023, 10, 27).unwrap();
+        let date2 = NaiveDate::from_ymd_opt(2023, 10, 28).unwrap();
+        
+        let mut app = App {
+            data: AppData::default(),
+            current_date: date1,
+            input: Input::default(),
+            input_mode: false,
+            edit_mode: false,
+            selected_task_index: None,
+            should_quit: false,
+        };
+
+        // Default should be 480 (8:00 AM)
+        assert_eq!(app.data.get_start_mins(&date1.to_string()), 480);
+        assert_eq!(app.data.get_start_mins(&date2.to_string()), 480);
+
+        // Shift date1 by 30 mins
+        app.shift_start_time(30);
+        assert_eq!(app.data.get_start_mins(&date1.to_string()), 510);
+        assert_eq!(app.data.get_start_mins(&date2.to_string()), 480);
+
+        // Switch to date2 and shift by -60 mins
+        app.current_date = date2;
+        app.shift_start_time(-60);
+        assert_eq!(app.data.get_start_mins(&date1.to_string()), 510);
+        assert_eq!(app.data.get_start_mins(&date2.to_string()), 420);
     }
 }

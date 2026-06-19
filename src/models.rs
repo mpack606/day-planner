@@ -60,6 +60,17 @@ pub struct AppData {
     pub tasks: HashMap<String, Vec<TaskRecord>>,
     #[serde(default = "default_start_mins")]
     pub start_mins: i32,
+    #[serde(default = "HashMap::new")]
+    pub daily_start_mins: HashMap<String, i32>,
+}
+
+impl AppData {
+    pub fn get_start_mins(&self, date: &str) -> i32 {
+        self.daily_start_mins
+            .get(date)
+            .cloned()
+            .unwrap_or(self.start_mins)
+    }
 }
 
 fn default_start_mins() -> i32 {
@@ -71,6 +82,7 @@ impl Default for AppData {
         Self {
             tasks: HashMap::new(),
             start_mins: 480,
+            daily_start_mins: HashMap::new(),
         }
     }
 }
