@@ -27,7 +27,7 @@ impl TaskRecord {
         parts.join(" ")
     }
 
-    pub fn start_mins_from_8am(&self) -> i32 {
+    pub fn start_mins_relative_to(&self, start_mins: i32) -> i32 {
         let parts: Vec<&str> = self.start_time.split_whitespace().collect();
         if parts.len() < 2 {
             return 0;
@@ -50,14 +50,29 @@ impl TaskRecord {
 
         // Minutes since midnight
         let total_mins = hour * 60 + min;
-        // Minutes since 8:00 AM
-        total_mins - (8 * 60)
+        // Minutes since start_mins
+        total_mins - start_mins
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AppData {
     pub tasks: HashMap<String, Vec<TaskRecord>>,
+    #[serde(default = "default_start_mins")]
+    pub start_mins: i32,
+}
+
+fn default_start_mins() -> i32 {
+    480
+}
+
+impl Default for AppData {
+    fn default() -> Self {
+        Self {
+            tasks: HashMap::new(),
+            start_mins: 480,
+        }
+    }
 }
 
 pub fn get_data_path() -> PathBuf {
@@ -90,14 +105,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_start_mins_from_8am() {
+    fn test_start_mins_relative_to() {
         let task = TaskRecord {
             id: "1".to_string(),
             name: "Test".to_string(),
             duration_mins: 60,
             start_time: "08:00 AM".to_string(),
         };
-        assert_eq!(task.start_mins_from_8am(), 0);
+        assert_eq!(task.start_mins_relative_to(480), 0);
+        assert_eq!(task.start_mins_relative_to(420), 60);
 
         let task2 = TaskRecord {
             id: "2".to_string(),
@@ -105,7 +121,7 @@ mod tests {
             duration_mins: 60,
             start_time: "10:30 AM".to_string(),
         };
-        assert_eq!(task2.start_mins_from_8am(), 150);
+        assert_eq!(task2.start_mins_relative_to(480), 150);
 
         let task3 = TaskRecord {
             id: "3".to_string(),
@@ -113,7 +129,7 @@ mod tests {
             duration_mins: 60,
             start_time: "01:00 PM".to_string(),
         };
-        assert_eq!(task3.start_mins_from_8am(), 300); // 13:00 - 8:00 = 5 hours = 300 mins
+        assert_eq!(task3.start_mins_relative_to(480), 300); // 13:00 - 8:00 = 5 hours = 300 mins
 
         let task4 = TaskRecord {
             id: "4".to_string(),
@@ -121,6 +137,6 @@ mod tests {
             duration_mins: 60,
             start_time: "12:00 PM".to_string(),
         };
-        assert_eq!(task4.start_mins_from_8am(), 240); // 12:00 PM is noon, 4 hours after 8 AM
+        assert_eq!(task4.start_mins_relative_to(480), 240); // 12:00 PM is noon, 4 hours after 8 AM
     }
 }

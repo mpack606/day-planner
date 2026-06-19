@@ -52,7 +52,7 @@ impl App {
         let date_str = self.current_date.to_string();
         if let Some(tasks) = self.data.tasks.get_mut(&date_str) {
             if !tasks.is_empty() {
-                tasks.sort_by_key(|t| t.start_mins_from_8am());
+                tasks.sort_by_key(|t| t.start_mins_relative_to(self.data.start_mins));
                 self.edit_mode = true;
                 self.input_mode = false;
                 self.selected_task_index = Some(0);
@@ -115,7 +115,7 @@ impl App {
                 if self.edit_mode {
                     if let Some(index) = self.selected_task_index {
                         if let Some(tasks) = self.data.tasks.get_mut(&date_str) {
-                            tasks.sort_by_key(|t| t.start_mins_from_8am());
+                            tasks.sort_by_key(|t| t.start_mins_relative_to(self.data.start_mins));
                             if let Some(task) = tasks.get_mut(index) {
                                 task.name = name;
                                 task.duration_mins = total_mins;
@@ -140,6 +140,11 @@ impl App {
                 self.input_mode = false;
             }
         }
+    }
+
+    pub fn shift_start_time(&mut self, delta_mins: i32) {
+        self.data.start_mins = (self.data.start_mins + delta_mins).clamp(0, 1410); // 1410 = 23:30
+        self.save();
     }
 }
 
@@ -171,7 +176,7 @@ mod tests {
         ]);
 
         let app = App {
-            data: AppData { tasks },
+            data: AppData { tasks, start_mins: 480 },
             current_date: date,
             input: Input::default(),
             input_mode: false,

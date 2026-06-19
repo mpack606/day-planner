@@ -90,6 +90,12 @@ where
                             KeyCode::Char('e') | KeyCode::Char('E') => {
                                 app.enter_edit_mode();
                             }
+                            KeyCode::Char('[') => {
+                                app.shift_start_time(-30);
+                            }
+                            KeyCode::Char(']') => {
+                                app.shift_start_time(30);
+                            }
                             _ => {}
                         }
                     }

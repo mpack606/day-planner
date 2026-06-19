@@ -54,7 +54,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         .unwrap_or_default();
 
     // Sort tasks by start time
-    tasks.sort_by_key(|t| t.start_mins_from_8am());
+    tasks.sort_by_key(|t| t.start_mins_relative_to(app.data.start_mins));
 
     let total_height = main_chunks[1].height;
     
@@ -66,10 +66,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     let mut display_items = Vec::new();
-    let mut current_min: i32 = 0; // Starts at 8:00 AM
+    let mut current_min: i32 = 0; // Starts at start_mins
 
     for task in &tasks {
-        let start_min = task.start_mins_from_8am();
+        let start_min = task.start_mins_relative_to(app.data.start_mins);
         if start_min > current_min {
             display_items.push(DisplayItem::Gap((start_min - current_min) as u32));
             current_min = start_min;
@@ -78,7 +78,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         current_min += task.duration_mins as i32;
     }
 
-    // Add trailing gap to reach 4:00 PM (480 mins) if necessary
+    // Add trailing gap to reach end of work day (8 hours = 480 mins) if necessary
     if current_min < 480 {
         display_items.push(DisplayItem::Gap((480 - current_min) as u32));
     }
@@ -119,8 +119,9 @@ pub fn draw(f: &mut Frame, app: &App) {
 
         // Render Label on the Left
         if chunk.height > 0 && (i == 0 || chunk.y >= last_label_y + 1) {
-            let h = 8 + running_min / 60;
-            let m = running_min % 60;
+            let total_mins = app.data.start_mins + running_min;
+            let h = (total_mins / 60) % 24;
+            let m = total_mins % 60;
             let time_label = format!(" {:02}:{:02}", h, m);
             let p = Paragraph::new(time_label).style(Style::default().fg(Color::DarkGray));
             f.render_widget(p, chunk);
@@ -206,7 +207,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     // Footer
-    let footer_text = "<Left/Right>: Date | <Enter>: Add | <E>: Edit | <Q>: Quit";
+    let footer_text = "<Left/Right>: Date | <[ / ]>: Start Time | <Enter>: Add | <E>: Edit | <Q>: Quit";
     let footer = Paragraph::new(footer_text).style(Style::default().fg(Color::DarkGray));
     f.render_widget(footer, chunks[3]);
 }
