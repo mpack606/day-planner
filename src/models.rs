@@ -27,7 +27,7 @@ impl TaskRecord {
         parts.join(" ")
     }
 
-    pub fn start_mins_relative_to(&self, start_mins: i32) -> i32 {
+    pub fn start_mins_since_midnight(&self) -> i32 {
         let parts: Vec<&str> = self.start_time.split_whitespace().collect();
         if parts.len() < 2 {
             return 0;
@@ -48,10 +48,11 @@ impl TaskRecord {
             hour = 0;
         }
 
-        // Minutes since midnight
-        let total_mins = hour * 60 + min;
-        // Minutes since start_mins
-        total_mins - start_mins
+        hour * 60 + min
+    }
+
+    pub fn start_mins_relative_to(&self, start_mins: i32) -> i32 {
+        self.start_mins_since_midnight() - start_mins
     }
 }
 
@@ -110,6 +111,18 @@ pub fn save_data(data: &AppData) {
     if let Ok(json) = serde_json::to_string_pretty(data) {
         let _ = fs::write(path, json);
     }
+}
+
+pub fn mins_to_time_string(mins: i32) -> String {
+    let mut h = (mins / 60) % 24;
+    let m = mins % 60;
+    let ampm = if h >= 12 { "PM" } else { "AM" };
+    if h > 12 {
+        h -= 12;
+    } else if h == 0 {
+        h = 12;
+    }
+    format!("{:02}:{:02} {}", h, m, ampm)
 }
 
 #[cfg(test)]

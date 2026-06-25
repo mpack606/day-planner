@@ -1,4 +1,4 @@
-use crate::models::{AppData, TaskRecord, load_data, save_data};
+use crate::models::{AppData, TaskRecord, load_data, save_data, mins_to_time_string};
 use chrono::{Local, NaiveDate};
 use tui_input::Input;
 use uuid::Uuid;
@@ -101,18 +101,28 @@ impl App {
             return;
         }
 
-        let re = Regex::new(r"^(?P<name>.+?)\s+(?:(?P<h>\d+)h)?\s*(?:(?P<m>\d+)m)?\s*(?P<start>\d{1,2}:\d{2}\s*(?:AM|PM|am|pm|Am|Pm))$").unwrap();
+        let re = Regex::new(r"^(?P<name>.+?)\s+(?:(?P<h>\d+)h)?\s*(?:(?P<m>\d+)m)?(?:\s+(?P<start>\d{1,2}:\d{2}\s*(?:AM|PM|am|pm|Am|Pm)))?$").unwrap();
         
         if let Some(caps) = re.captures(input_val) {
             let name = caps.name("name").map_or("", |m| m.as_str()).to_string();
             let hours: u32 = caps.name("h").map_or("0", |m| m.as_str()).parse().unwrap_or(0);
             let mins: u32 = caps.name("m").map_or("0", |m| m.as_str()).parse().unwrap_or(0);
-            let start_time = caps.name("start").map_or("", |m| m.as_str()).to_string();
             
             let total_mins = hours * 60 + mins;
             if total_mins > 0 {
                 let date_str = self.current_date.to_string();
                 
+                let start_time = if let Some(start_cap) = caps.name("start") {
+                    start_cap.as_str().to_string()
+                } else {
+                    let day_start = self.data.get_start_mins(&date_str);
+                    self.data.tasks.get(&date_str).and_then(|tasks| {
+                        tasks.iter().max_by_key(|t| t.start_mins_since_midnight())
+                    }).map(|last_task| {
+                        mins_to_time_string(last_task.start_mins_since_midnight() + last_task.duration_mins as i32)
+                    }).unwrap_or_else(|| mins_to_time_string(day_start))
+                };
+
                 if self.edit_mode {
                     if let Some(index) = self.selected_task_index {
                         let start_mins = self.data.get_start_mins(&date_str);
@@ -226,5 +236,90 @@ mod tests {
         app.shift_start_time(-60);
         assert_eq!(app.data.get_start_mins(&date1.to_string()), 510);
         assert_eq!(app.data.get_start_mins(&date2.to_string()), 420);
+    }
+
+    #[test]
+    fn test_handle_submit_optional_start_time() {
+        let date = NaiveDate::from_ymd_opt(2023, 10, 27).unwrap();
+        let mut app = App {
+            data: AppData {
+                tasks: HashMap::new(),
+                start_mins: 480, // 8:00 AM
+                daily_start_mins: HashMap::new(),
+            },
+            current_date: date,
+            input: Input::default(),
+            input_mode: true,
+            edit_mode: false,
+            selected_task_index: None,
+            should_quit: false,
+        };
+
+        // 1. Add first task without start time -> should be 08:00 AM
+        app.input = Input::new("Task 1 30m".to_string());
+        app.handle_submit();
+        
+        let date_str = date.to_string();
+        let tasks = app.data.tasks.get(&date_str).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].name, "Task 1");
+        assert_eq!(tasks[0].duration_mins, 30);
+        assert_eq!(tasks[0].start_time, "08:00 AM");
+
+        // 2. Add second task without start time -> should be 08:30 AM (08:00 + 30m)
+        app.input = Input::new("Task 2 1h".to_string());
+        app.handle_submit();
+        
+        let tasks = app.data.tasks.get(&date_str).unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[1].name, "Task 2");
+        assert_eq!(tasks[1].duration_mins, 60);
+        assert_eq!(tasks[1].start_time, "08:30 AM");
+
+        // 3. Add third task with explicit start time
+        app.input = Input::new("Task 3 15m 10:00 AM".to_string());
+        app.handle_submit();
+        
+        let tasks = app.data.tasks.get(&date_str).unwrap();
+        assert_eq!(tasks.len(), 3);
+        assert_eq!(tasks[2].name, "Task 3");
+        assert_eq!(tasks[2].start_time, "10:00 AM");
+
+        // 4. Add fourth task without start time -> should be 10:15 AM (10:00 + 15m)
+        app.input = Input::new("Task 4 10m".to_string());
+        app.handle_submit();
+        
+        let tasks = app.data.tasks.get(&date_str).unwrap();
+        assert_eq!(tasks.len(), 4);
+        assert_eq!(tasks[3].name, "Task 4");
+        assert_eq!(tasks[3].start_time, "10:15 AM");
+    }
+
+    #[test]
+    fn test_handle_submit_with_shifted_day_start() {
+        let date = NaiveDate::from_ymd_opt(2023, 10, 27).unwrap();
+        let mut app = App {
+            data: AppData {
+                tasks: HashMap::new(),
+                start_mins: 480, // 8:00 AM
+                daily_start_mins: HashMap::new(),
+            },
+            current_date: date,
+            input: Input::default(),
+            input_mode: true,
+            edit_mode: false,
+            selected_task_index: None,
+            should_quit: false,
+        };
+
+        // Shift day start to 7:00 AM
+        app.shift_start_time(-60);
+        
+        app.input = Input::new("Task 1 30m".to_string());
+        app.handle_submit();
+        
+        let date_str = date.to_string();
+        let tasks = app.data.tasks.get(&date_str).unwrap();
+        assert_eq!(tasks[0].start_time, "07:00 AM");
     }
 }
