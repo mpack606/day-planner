@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TaskRecord {
@@ -94,8 +94,7 @@ pub fn get_data_path() -> PathBuf {
     path
 }
 
-pub fn load_data() -> AppData {
-    let path = get_data_path();
+pub fn load_data(path: &Path) -> AppData {
     if path.exists() {
         if let Ok(contents) = fs::read_to_string(path) {
             if let Ok(data) = serde_json::from_str(&contents) {
@@ -106,8 +105,7 @@ pub fn load_data() -> AppData {
     AppData::default()
 }
 
-pub fn save_data(data: &AppData) {
-    let path = get_data_path();
+pub fn save_data(data: &AppData, path: &Path) {
     if let Ok(json) = serde_json::to_string_pretty(data) {
         let _ = fs::write(path, json);
     }

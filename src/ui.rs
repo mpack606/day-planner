@@ -187,20 +187,22 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Input Box
     let input_title = if app.edit_mode {
         "Edit record (Arrows to cycle, Enter to save, Esc to cancel)"
+    } else if app.fill_mode {
+        "Fill all gaps with task name (Enter to confirm, Esc to cancel)"
     } else if app.input_mode {
         "Enter record (e.g. Task 1h 30m 10:00 AM) - Press Esc to cancel"
     } else {
-        "Press Enter to add record | Press E to edit"
+        "Press Enter to add record | Press E to edit | Press F to fill gaps"
     };
 
     let input_paragraph = Paragraph::new(app.input.value())
-        .style(match app.input_mode || app.edit_mode {
+        .style(match app.input_mode || app.edit_mode || app.fill_mode {
             true => Style::default().fg(Color::Yellow),
             false => Style::default(),
         })
         .block(Block::default().borders(Borders::ALL).title(input_title));
     f.render_widget(input_paragraph, chunks[2]);
-    if app.input_mode || app.edit_mode {
+    if app.input_mode || app.edit_mode || app.fill_mode {
         f.set_cursor_position((
             chunks[2].x + app.input.visual_cursor() as u16 + 1,
             chunks[2].y + 1,
@@ -208,7 +210,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     // Footer
-    let footer_text = "<Left/Right>: Date | <[ / ]>: Start Time | <Enter>: Add | <E>: Edit | <Q>: Quit";
+    let footer_text = "<Left/Right>: Date | <[ / ]>: Start Time | <Enter>: Add | <E>: Edit | <F>: Fill Gaps | <Q>: Quit";
     let footer = Paragraph::new(footer_text).style(Style::default().fg(Color::DarkGray));
     f.render_widget(footer, chunks[3]);
 }

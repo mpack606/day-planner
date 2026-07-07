@@ -52,7 +52,7 @@ where
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    if app.input_mode || app.edit_mode {
+                    if app.input_mode || app.edit_mode || app.fill_mode {
                         match key.code {
                             KeyCode::Enter => {
                                 app.handle_submit();
@@ -60,6 +60,7 @@ where
                             KeyCode::Esc => {
                                 app.input_mode = false;
                                 app.edit_mode = false;
+                                app.fill_mode = false;
                                 app.selected_task_index = None;
                                 app.input.reset();
                             }
@@ -95,6 +96,9 @@ where
                             }
                             KeyCode::Char(']') => {
                                 app.shift_start_time(30);
+                            }
+                            KeyCode::Char('f') | KeyCode::Char('F') => {
+                                app.fill_mode = true;
                             }
                             _ => {}
                         }
