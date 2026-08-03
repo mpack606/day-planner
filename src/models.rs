@@ -4,6 +4,8 @@ use serde_json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+pub const DEFAULT_START_MINS: i32 = 480; // 8:00 AM
+pub const WORK_DAY_DURATION_MINS: u32 = 480; // 8 hours
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TaskRecord {
@@ -75,14 +77,14 @@ impl AppData {
 }
 
 fn default_start_mins() -> i32 {
-    480
+    DEFAULT_START_MINS
 }
 
 impl Default for AppData {
     fn default() -> Self {
         Self {
             tasks: HashMap::new(),
-            start_mins: 480,
+            start_mins: DEFAULT_START_MINS,
             daily_start_mins: HashMap::new(),
         }
     }
@@ -135,7 +137,7 @@ mod tests {
             duration_mins: 60,
             start_time: "08:00 AM".to_string(),
         };
-        assert_eq!(task.start_mins_relative_to(480), 0);
+        assert_eq!(task.start_mins_relative_to(DEFAULT_START_MINS), 0);
         assert_eq!(task.start_mins_relative_to(420), 60);
 
         let task2 = TaskRecord {
@@ -144,7 +146,7 @@ mod tests {
             duration_mins: 60,
             start_time: "10:30 AM".to_string(),
         };
-        assert_eq!(task2.start_mins_relative_to(480), 150);
+        assert_eq!(task2.start_mins_relative_to(DEFAULT_START_MINS), 150);
 
         let task3 = TaskRecord {
             id: "3".to_string(),
@@ -152,7 +154,7 @@ mod tests {
             duration_mins: 60,
             start_time: "01:00 PM".to_string(),
         };
-        assert_eq!(task3.start_mins_relative_to(480), 300); // 13:00 - 8:00 = 5 hours = 300 mins
+        assert_eq!(task3.start_mins_relative_to(DEFAULT_START_MINS), 300); // 13:00 - 8:00 = 5 hours = 300 mins
 
         let task4 = TaskRecord {
             id: "4".to_string(),
@@ -160,6 +162,6 @@ mod tests {
             duration_mins: 60,
             start_time: "12:00 PM".to_string(),
         };
-        assert_eq!(task4.start_mins_relative_to(480), 240); // 12:00 PM is noon, 4 hours after 8 AM
+        assert_eq!(task4.start_mins_relative_to(DEFAULT_START_MINS), 240); // 12:00 PM is noon, 4 hours after 8 AM
     }
 }

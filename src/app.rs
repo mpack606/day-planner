@@ -1,4 +1,4 @@
-use crate::models::{AppData, TaskRecord, load_data, save_data, mins_to_time_string, get_data_path};
+use crate::models::{AppData, TaskRecord, load_data, save_data, mins_to_time_string, get_data_path, DEFAULT_START_MINS, WORK_DAY_DURATION_MINS};
 use chrono::{Local, NaiveDate};
 use tui_input::Input;
 use uuid::Uuid;
@@ -217,6 +217,16 @@ impl App {
             current_min = task_start_relative + task.duration_mins as i32;
         }
         
+        if current_min < WORK_DAY_DURATION_MINS as i32 {
+            let gap_duration = (WORK_DAY_DURATION_MINS as i32 - current_min) as u32;
+            new_tasks.push(TaskRecord {
+                id: Uuid::new_v4().to_string(),
+                name: task_name.clone(),
+                duration_mins: gap_duration,
+                start_time: mins_to_time_string(start_mins + current_min),
+            });
+        }
+        
         self.data.tasks.insert(date_str, new_tasks);
         self.save();
     }
@@ -252,7 +262,7 @@ mod tests {
         let app = App {
             data: AppData {
                 tasks,
-                start_mins: 480,
+                start_mins: DEFAULT_START_MINS,
                 daily_start_mins: HashMap::new(),
             },
             storage_path: PathBuf::from("test_data.json"),
@@ -279,9 +289,9 @@ mod tests {
         let mut app = App::with_path(path.clone());
         app.current_date = date1;
 
-        // Default should be 480 (8:00 AM)
-        assert_eq!(app.data.get_start_mins(&date1.to_string()), 480);
-        assert_eq!(app.data.get_start_mins(&date2.to_string()), 480);
+        // Default should be DEFAULT_START_MINS (8:00 AM)
+        assert_eq!(app.data.get_start_mins(&date1.to_string()), DEFAULT_START_MINS);
+        assert_eq!(app.data.get_start_mins(&date2.to_string()), DEFAULT_START_MINS);
 
         // Shift date1 by 30 mins
         app.shift_start_time(30);
@@ -438,6 +448,70 @@ mod tests {
         assert_eq!(tasks[4].name, "Special task");
         assert_eq!(tasks[4].start_time, "01:40 PM");
         assert_eq!(tasks[4].duration_mins, 130);
+
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn test_fill_gaps_trailing() {
+        let date = NaiveDate::from_ymd_opt(2026, 7, 28).unwrap();
+        let date_str = date.to_string();
+        let mut tasks = HashMap::new();
+        tasks.insert(date_str.clone(), vec![
+            TaskRecord {
+                id: "1".to_string(),
+                name: "Task 1".to_string(),
+                duration_mins: 60,
+                start_time: "08:00 AM".to_string(),
+            },
+        ]);
+
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("test_fill_gaps_trailing.json");
+
+        let mut app = App::with_path(path.clone());
+        app.data.tasks = tasks;
+        app.current_date = date;
+
+        app.fill_gaps("Gap Filler".to_string());
+
+        let tasks = app.data.tasks.get(&date_str).unwrap();
+        
+        // Expected:
+        // 08:00 AM Task 1 60m (ends 09:00 AM)
+        // 09:00 AM Gap Filler 7h (420 mins) (ends 04:00 PM)
+        
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[1].name, "Gap Filler");
+        assert_eq!(tasks[1].start_time, "09:00 AM");
+        assert_eq!(tasks[1].duration_mins, 420);
+
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn test_fill_gaps_empty_day() {
+        let date = NaiveDate::from_ymd_opt(2026, 7, 28).unwrap();
+        let date_str = date.to_string();
+        
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("test_fill_gaps_empty_day.json");
+
+        let mut app = App::with_path(path.clone());
+        app.current_date = date;
+
+        app.fill_gaps("Whole Day".to_string());
+
+        let tasks = app.data.tasks.get(&date_str).unwrap();
+        
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].name, "Whole Day");
+        assert_eq!(tasks[0].start_time, "08:00 AM");
+        assert_eq!(tasks[0].duration_mins, WORK_DAY_DURATION_MINS);
 
         if path.exists() {
             let _ = std::fs::remove_file(path);

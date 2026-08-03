@@ -1,4 +1,5 @@
 use crate::app::App;
+use crate::models::WORK_DAY_DURATION_MINS;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
@@ -79,13 +80,13 @@ pub fn draw(f: &mut Frame, app: &App) {
         current_min += task.duration_mins as i32;
     }
 
-    // Add trailing gap to reach end of work day (8 hours = 480 mins) if necessary
-    if current_min < 480 {
-        display_items.push(DisplayItem::Gap((480 - current_min) as u32));
+    // Add trailing gap to reach end of work day (8 hours = WORK_DAY_DURATION_MINS) if necessary
+    if current_min < WORK_DAY_DURATION_MINS as i32 {
+        display_items.push(DisplayItem::Gap((WORK_DAY_DURATION_MINS as i32 - current_min) as u32));
     }
 
     let mut constraints = Vec::new();
-    let total_dur = 480.max(current_min as u32);
+    let total_dur = WORK_DAY_DURATION_MINS.max(current_min as u32);
     for item in &display_items {
         let duration = match item {
             DisplayItem::Task(t) => t.duration_mins,
