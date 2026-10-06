@@ -21,6 +21,33 @@ pub struct EmptySlot {
     pub duration_mins: u32,
 }
 
+fn normalize_start_time(time: &str, meridiem: Option<&str>) -> Option<String> {
+    let (hour, minute) = time.split_once(':')?;
+    let hour: i32 = hour.parse().ok()?;
+    let minute: i32 = minute.parse().ok()?;
+    if !(0..60).contains(&minute) {
+        return None;
+    }
+
+    let hour_24 = if let Some(meridiem) = meridiem {
+        if !(1..=12).contains(&hour) {
+            return None;
+        }
+        match meridiem.to_ascii_lowercase().as_str() {
+            "am" => hour % 12,
+            "pm" => hour % 12 + 12,
+            _ => return None,
+        }
+    } else {
+        if !(0..24).contains(&hour) {
+            return None;
+        }
+        hour
+    };
+
+    Some(mins_to_time_string(hour_24 * 60 + minute))
+}
+
 pub struct App {
     pub data: AppData,
     pub storage_path: PathBuf,
@@ -29,6 +56,7 @@ pub struct App {
     pub input_mode: bool,
     pub edit_mode: bool,
     pub fill_mode: bool,
+    pub delete_mode: bool,
     pub selected_task_index: Option<usize>,
     pub copy_stage: CopyStage,
     pub copy_source_task_id: Option<String>,
@@ -49,6 +77,7 @@ impl App {
             input_mode: false,
             edit_mode: false,
             fill_mode: false,
+            delete_mode: false,
             selected_task_index: None,
             copy_stage: CopyStage::Inactive,
             copy_source_task_id: None,
@@ -68,6 +97,7 @@ impl App {
             input_mode: false,
             edit_mode: false,
             fill_mode: false,
+            delete_mode: false,
             selected_task_index: None,
             copy_stage: CopyStage::Inactive,
             copy_source_task_id: None,
@@ -126,6 +156,61 @@ impl App {
                 self.selected_gap_index = None;
             }
         }
+    }
+
+    pub fn enter_delete_mode(&mut self) {
+        let date_str = self.current_date.to_string();
+        let start_mins = self.data.get_start_mins(&date_str);
+        if let Some(tasks) = self.data.tasks.get_mut(&date_str) {
+            if !tasks.is_empty() {
+                tasks.sort_by_key(|task| task.start_mins_relative_to(start_mins));
+                self.input_mode = false;
+                self.edit_mode = false;
+                self.fill_mode = false;
+                self.delete_mode = true;
+                self.selected_task_index = Some(0);
+            }
+        }
+    }
+
+    pub fn cancel_delete_mode(&mut self) {
+        self.delete_mode = false;
+        self.selected_task_index = None;
+    }
+
+    pub fn move_delete_selection_previous(&mut self) {
+        if let Some(index) = self.selected_task_index {
+            self.selected_task_index = Some(index.saturating_sub(1));
+        }
+    }
+
+    pub fn move_delete_selection_next(&mut self) {
+        let task_count = self
+            .data
+            .tasks
+            .get(&self.current_date.to_string())
+            .map_or(0, Vec::len);
+        if let Some(index) = self.selected_task_index {
+            if index + 1 < task_count {
+                self.selected_task_index = Some(index + 1);
+            }
+        }
+    }
+
+    pub fn confirm_delete_selection(&mut self) {
+        let date_str = self.current_date.to_string();
+        let removed = match (self.data.tasks.get_mut(&date_str), self.selected_task_index) {
+            (Some(tasks), Some(index)) if index < tasks.len() => {
+                tasks.remove(index);
+                true
+            }
+            _ => false,
+        };
+
+        if removed {
+            self.save();
+        }
+        self.cancel_delete_mode();
     }
 
     pub fn cancel_copy_mode(&mut self) {
@@ -309,7 +394,7 @@ impl App {
             return;
         }
 
-        let re = Regex::new(r"^(?P<name>.+?)\s+(?:(?P<h>\d+)h)?\s*(?:(?P<m>\d+)m)?(?:\s+(?P<start>\d{1,2}:\d{2}\s*(?:AM|PM|am|pm|Am|Pm)))?$").unwrap();
+        let re = Regex::new(r"^(?P<name>.+?)\s+(?:(?P<h>\d+)h)?\s*(?:(?P<m>\d+)m)?(?:\s+(?P<start>\d{1,2}:\d{2})(?:\s*(?P<ampm>(?i:AM|PM)))?)?$").unwrap();
 
         if let Some(caps) = re.captures(input_val) {
             let name = caps.name("name").map_or("", |m| m.as_str()).to_string();
@@ -329,7 +414,13 @@ impl App {
                 let date_str = self.current_date.to_string();
 
                 let start_time = if let Some(start_cap) = caps.name("start") {
-                    start_cap.as_str().to_string()
+                    let Some(start_time) = normalize_start_time(
+                        start_cap.as_str(),
+                        caps.name("ampm").map(|value| value.as_str()),
+                    ) else {
+                        return;
+                    };
+                    start_time
                 } else {
                     let day_start = self.data.get_start_mins(&date_str);
                     self.data
@@ -473,6 +564,7 @@ mod tests {
             input_mode: false,
             edit_mode: false,
             fill_mode: false,
+            delete_mode: false,
             selected_task_index: None,
             copy_stage: CopyStage::Inactive,
             copy_source_task_id: None,
@@ -825,5 +917,90 @@ mod tests {
         if path.exists() {
             let _ = std::fs::remove_file(path);
         }
+    }
+
+    #[test]
+    fn test_delete_selected_task() {
+        let date = NaiveDate::from_ymd_opt(2026, 10, 6).unwrap();
+        let date_str = date.to_string();
+        let path =
+            std::env::temp_dir().join(format!("test_delete_selected_task_{}.json", Uuid::new_v4()));
+        let mut app = App::with_path(path.clone());
+        app.current_date = date;
+        app.data.tasks.insert(
+            date_str.clone(),
+            vec![
+                TaskRecord {
+                    id: "later".to_string(),
+                    name: "Later".to_string(),
+                    duration_mins: 30,
+                    start_time: "10:00 AM".to_string(),
+                },
+                TaskRecord {
+                    id: "first".to_string(),
+                    name: "First".to_string(),
+                    duration_mins: 30,
+                    start_time: "08:00 AM".to_string(),
+                },
+            ],
+        );
+
+        app.enter_delete_mode();
+        assert!(app.delete_mode);
+        app.move_delete_selection_next();
+        app.confirm_delete_selection();
+
+        let tasks = app.data.tasks.get(&date_str).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, "first");
+        assert!(!app.delete_mode);
+        assert_eq!(app.selected_task_index, None);
+
+        let reloaded = App::with_path(path.clone());
+        assert_eq!(reloaded.data.tasks.get(&date_str).unwrap().len(), 1);
+
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn test_explicit_start_times_accept_24_hour_and_meridiem_formats() {
+        let date = NaiveDate::from_ymd_opt(2026, 10, 6).unwrap();
+        let date_str = date.to_string();
+        let path = std::env::temp_dir().join(format!(
+            "test_explicit_start_time_formats_{}.json",
+            Uuid::new_v4()
+        ));
+        let mut app = App::with_path(path.clone());
+        app.current_date = date;
+
+        app.input_mode = true;
+        app.input = Input::new("Afternoon task 45m 15:30".to_string());
+        app.handle_submit();
+
+        app.input_mode = true;
+        app.input = Input::new("Morning task 30m 9:15 am".to_string());
+        app.handle_submit();
+
+        app.input_mode = true;
+        app.input = Input::new("Midnight task 10m 00:05".to_string());
+        app.handle_submit();
+
+        let tasks = app.data.tasks.get(&date_str).unwrap();
+        assert_eq!(tasks[0].start_time, "03:30 PM");
+        assert_eq!(tasks[1].start_time, "09:15 AM");
+        assert_eq!(tasks[2].start_time, "12:05 AM");
+
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn test_invalid_explicit_start_times_are_rejected() {
+        assert_eq!(normalize_start_time("24:00", None), None);
+        assert_eq!(normalize_start_time("13:00", Some("PM")), None);
+        assert_eq!(normalize_start_time("12:60", Some("AM")), None);
     }
 }

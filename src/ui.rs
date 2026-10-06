@@ -139,14 +139,16 @@ pub fn draw(f: &mut Frame, app: &App) {
                     let task_index = tasks.iter().position(|t| t.id == task.id);
                     let is_selected = (app.edit_mode || app.copy_stage == CopyStage::SelectSource)
                         && app.selected_task_index == task_index;
+                    let is_delete_selected =
+                        app.delete_mode && app.selected_task_index == task_index;
                     let is_copy_source = app.copy_stage == CopyStage::SelectDestination
                         && app.copy_source_task_id.as_deref() == Some(task.id.as_str());
 
                     let block = if content_chunk.height == 1 {
-                        Block::default()
-                            .borders(Borders::TOP)
-                            .title(title)
-                            .style(if is_selected {
+                        Block::default().borders(Borders::TOP).title(title).style(
+                            if is_delete_selected {
+                                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                            } else if is_selected {
                                 Style::default()
                                     .fg(Color::Yellow)
                                     .add_modifier(Modifier::BOLD)
@@ -156,14 +158,19 @@ pub fn draw(f: &mut Frame, app: &App) {
                                     .add_modifier(Modifier::BOLD)
                             } else {
                                 Style::default().fg(Color::Cyan)
-                            })
+                            },
+                        )
                     } else {
                         let mut block = Block::default()
                             .borders(Borders::ALL)
                             .title(title)
                             .style(Style::default().bg(Color::Rgb(40, 40, 60)));
 
-                        if is_selected {
+                        if is_delete_selected {
+                            block = block.border_style(
+                                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                            );
+                        } else if is_selected {
                             block = block.border_style(
                                 Style::default()
                                     .fg(Color::Yellow)
@@ -210,7 +217,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     // Input Box
-    let input_title = if app.copy_stage == CopyStage::SelectSource {
+    let input_title = if app.delete_mode {
+        "Delete: select a record with arrows, then press Enter (Esc to cancel)"
+    } else if app.copy_stage == CopyStage::SelectSource {
         "Copy: select a record with arrows, then press Enter (Esc to cancel)"
     } else if app.copy_stage == CopyStage::SelectDestination {
         if app.selected_gap_index.is_some() {
@@ -223,9 +232,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     } else if app.fill_mode {
         "Fill all gaps with task name (Enter to confirm, Esc to cancel)"
     } else if app.input_mode {
-        "Enter record (e.g. Task 1h 30m 10:00 AM) - Press Esc to cancel"
+        "Enter record (e.g. Task 1h 30m 15:00 or 03:00 PM) - Press Esc to cancel"
     } else {
-        "Press Enter to add | Press E to edit | Press C to copy | Press F to fill gaps"
+        "Press Enter to add | Press E to edit | Press C to copy | Press D to delete | Press F to fill gaps"
     };
 
     let input_paragraph = Paragraph::new(app.input.value())
@@ -243,7 +252,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     // Footer
-    let footer_text = "<Left/Right>: Date | <[ / ]>: Start Time | <Enter>: Add | <E>: Edit | <C>: Copy | <F>: Fill Gaps | <Q>: Quit";
+    let footer_text = "<Left/Right>: Date | <[ / ]>: Start Time | <Enter>: Add | <E>: Edit | <C>: Copy | <D>: Delete | <F>: Fill Gaps | <Q>: Quit";
     let footer = Paragraph::new(footer_text).style(Style::default().fg(Color::DarkGray));
     f.render_widget(footer, chunks[3]);
 }

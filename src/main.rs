@@ -49,7 +49,15 @@ where
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    if app.is_copy_mode() {
+                    if app.delete_mode {
+                        match key.code {
+                            KeyCode::Enter => app.confirm_delete_selection(),
+                            KeyCode::Esc => app.cancel_delete_mode(),
+                            KeyCode::Up | KeyCode::Left => app.move_delete_selection_previous(),
+                            KeyCode::Down | KeyCode::Right => app.move_delete_selection_next(),
+                            _ => {}
+                        }
+                    } else if app.is_copy_mode() {
                         match key.code {
                             KeyCode::Enter => app.confirm_copy_selection(),
                             KeyCode::Esc => app.cancel_copy_mode(),
@@ -107,6 +115,9 @@ where
                             }
                             KeyCode::Char('c') | KeyCode::Char('C') => {
                                 app.enter_copy_mode();
+                            }
+                            KeyCode::Char('d') | KeyCode::Char('D') => {
+                                app.enter_delete_mode();
                             }
                             _ => {}
                         }
