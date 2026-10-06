@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{App, CopyStage};
 use crate::models::WORK_DAY_DURATION_MINS;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -20,12 +20,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let total_mins = app.get_total_duration_mins();
     let h = total_mins / 60;
     let m = total_mins % 60;
-    let date_str = format!(
-        "{} | {}h {}m",
-        app.current_date.format("%a %d %b %Y"),
-        h,
-        m
-    );
+    let date_str = format!("{} | {}h {}m", app.current_date.format("%a %d %b %Y"), h, m);
     let header = Paragraph::new(date_str)
         .style(Style::default().add_modifier(Modifier::BOLD))
         .block(Block::default().borders(Borders::ALL).title("Day Planner"));
@@ -59,7 +54,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     tasks.sort_by_key(|t| t.start_mins_relative_to(start_mins));
 
     let total_height = main_chunks[1].height;
-    
+
     // We'll build a list of "DisplayItems" which are either Tasks or Gaps
     #[derive(Clone)]
     enum DisplayItem {
@@ -74,15 +69,16 @@ pub fn draw(f: &mut Frame, app: &App) {
         let start_min = task.start_mins_relative_to(start_mins);
         if start_min > current_min {
             display_items.push(DisplayItem::Gap((start_min - current_min) as u32));
-            current_min = start_min;
         }
         display_items.push(DisplayItem::Task(task.clone()));
-        current_min += task.duration_mins as i32;
+        current_min = current_min.max(start_min + task.duration_mins as i32);
     }
 
     // Add trailing gap to reach end of work day (8 hours = WORK_DAY_DURATION_MINS) if necessary
     if current_min < WORK_DAY_DURATION_MINS as i32 {
-        display_items.push(DisplayItem::Gap((WORK_DAY_DURATION_MINS as i32 - current_min) as u32));
+        display_items.push(DisplayItem::Gap(
+            (WORK_DAY_DURATION_MINS as i32 - current_min) as u32,
+        ));
     }
 
     let mut constraints = Vec::new();
@@ -114,6 +110,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Render Timeline and Tasks
     let mut running_min = 0;
     let mut last_label_y = 0;
+    let mut gap_index = 0;
 
     for (i, item) in display_items.iter().enumerate() {
         let chunk = timeline_chunks[i];
@@ -139,14 +136,24 @@ pub fn draw(f: &mut Frame, app: &App) {
                     let m = task.duration_mins % 60;
                     let title = format!(" [{}] {} ({}h {}m) ", task.start_time, task.name, h, m);
 
-                    let is_selected = app.edit_mode && app.selected_task_index == Some(tasks.iter().position(|t| t.id == task.id).unwrap_or(999));
+                    let task_index = tasks.iter().position(|t| t.id == task.id);
+                    let is_selected = (app.edit_mode || app.copy_stage == CopyStage::SelectSource)
+                        && app.selected_task_index == task_index;
+                    let is_copy_source = app.copy_stage == CopyStage::SelectDestination
+                        && app.copy_source_task_id.as_deref() == Some(task.id.as_str());
 
                     let block = if content_chunk.height == 1 {
                         Block::default()
                             .borders(Borders::TOP)
                             .title(title)
                             .style(if is_selected {
-                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD)
+                            } else if is_copy_source {
+                                Style::default()
+                                    .fg(Color::Green)
+                                    .add_modifier(Modifier::BOLD)
                             } else {
                                 Style::default().fg(Color::Cyan)
                             })
@@ -155,9 +162,19 @@ pub fn draw(f: &mut Frame, app: &App) {
                             .borders(Borders::ALL)
                             .title(title)
                             .style(Style::default().bg(Color::Rgb(40, 40, 60)));
-                        
+
                         if is_selected {
-                            block = block.border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+                            block = block.border_style(
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            );
+                        } else if is_copy_source {
+                            block = block.border_style(
+                                Style::default()
+                                    .fg(Color::Green)
+                                    .add_modifier(Modifier::BOLD),
+                            );
                         }
                         block
                     };
@@ -170,30 +187,45 @@ pub fn draw(f: &mut Frame, app: &App) {
                     let h = gap / 60;
                     let m = gap % 60;
                     let title = format!(" GAP: {}h {}m ", h, m);
+                    let is_selected = app.copy_stage == CopyStage::SelectDestination
+                        && app.selected_gap_index == Some(gap_index);
                     let gap_block = Block::default()
                         .borders(Borders::ALL)
-                        .style(
+                        .style(if is_selected {
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
                             Style::default()
                                 .fg(Color::DarkGray)
-                                .add_modifier(Modifier::DIM),
-                        )
+                                .add_modifier(Modifier::DIM)
+                        })
                         .title(title);
                     f.render_widget(gap_block, task_chunk);
                 }
                 running_min += *gap as i32;
+                gap_index += 1;
             }
         }
     }
 
     // Input Box
-    let input_title = if app.edit_mode {
+    let input_title = if app.copy_stage == CopyStage::SelectSource {
+        "Copy: select a record with arrows, then press Enter (Esc to cancel)"
+    } else if app.copy_stage == CopyStage::SelectDestination {
+        if app.selected_gap_index.is_some() {
+            "Copy: select an empty time slot with arrows, then press Enter"
+        } else {
+            "Copy: no empty time slots available (Esc to cancel)"
+        }
+    } else if app.edit_mode {
         "Edit record (Arrows to cycle, Enter to save, Esc to cancel)"
     } else if app.fill_mode {
         "Fill all gaps with task name (Enter to confirm, Esc to cancel)"
     } else if app.input_mode {
         "Enter record (e.g. Task 1h 30m 10:00 AM) - Press Esc to cancel"
     } else {
-        "Press Enter to add record | Press E to edit | Press F to fill gaps"
+        "Press Enter to add | Press E to edit | Press C to copy | Press F to fill gaps"
     };
 
     let input_paragraph = Paragraph::new(app.input.value())
@@ -211,7 +243,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     // Footer
-    let footer_text = "<Left/Right>: Date | <[ / ]>: Start Time | <Enter>: Add | <E>: Edit | <F>: Fill Gaps | <Q>: Quit";
+    let footer_text = "<Left/Right>: Date | <[ / ]>: Start Time | <Enter>: Add | <E>: Edit | <C>: Copy | <F>: Fill Gaps | <Q>: Quit";
     let footer = Paragraph::new(footer_text).style(Style::default().fg(Color::DarkGray));
     f.render_widget(footer, chunks[3]);
 }

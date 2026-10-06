@@ -1,16 +1,16 @@
-mod models;
 mod app;
+mod models;
 mod ui;
 
 use app::App;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
-    backend::{Backend, CrosstermBackend},
     Terminal,
+    backend::{Backend, CrosstermBackend},
 };
 use std::{error::Error, io, time::Duration};
 use tui_input::backend::crossterm::EventHandler;
@@ -29,10 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // restore terminal
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen,)?;
     terminal.show_cursor()?;
 
     if let Err(err) = res {
@@ -52,7 +49,15 @@ where
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    if app.input_mode || app.edit_mode || app.fill_mode {
+                    if app.is_copy_mode() {
+                        match key.code {
+                            KeyCode::Enter => app.confirm_copy_selection(),
+                            KeyCode::Esc => app.cancel_copy_mode(),
+                            KeyCode::Up | KeyCode::Left => app.move_copy_selection_previous(),
+                            KeyCode::Down | KeyCode::Right => app.move_copy_selection_next(),
+                            _ => {}
+                        }
+                    } else if app.input_mode || app.edit_mode || app.fill_mode {
                         match key.code {
                             KeyCode::Enter => {
                                 app.handle_submit();
@@ -99,6 +104,9 @@ where
                             }
                             KeyCode::Char('f') | KeyCode::Char('F') => {
                                 app.fill_mode = true;
+                            }
+                            KeyCode::Char('c') | KeyCode::Char('C') => {
+                                app.enter_copy_mode();
                             }
                             _ => {}
                         }

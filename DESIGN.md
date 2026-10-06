@@ -21,6 +21,7 @@ This document outlines the design and requirements for the Day Planner JIRA time
 - **Persistent Storage**: Every change is immediately synchronized with the underlying JSON file.
 - **Date-Specific Records**: Tasks are organized and saved for the specific date they were reported on.
 - **Task Editing**: Allows modifying existing tasks by entering edit mode (Press 'E'), navigating with Arrow keys, and updating with 'Enter'.
+- **Task Copying**: Pressing 'C' starts a two-step copy flow: select a task, then select an empty slot. The new task fills the complete selected slot.
 
 ## UI
 
