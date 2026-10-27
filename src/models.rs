@@ -61,31 +61,42 @@ impl TaskRecord {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppData {
     pub tasks: HashMap<String, Vec<TaskRecord>>,
-    #[serde(default = "default_start_mins")]
-    pub start_mins: i32,
-    #[serde(default = "HashMap::new")]
-    pub daily_start_mins: HashMap<String, i32>,
 }
 
 impl AppData {
     pub fn get_start_mins(&self, date: &str) -> i32 {
-        self.daily_start_mins
+        self.tasks
             .get(date)
-            .cloned()
-            .unwrap_or(self.start_mins)
+            .and_then(|tasks| {
+                tasks
+                    .iter()
+                    .map(TaskRecord::start_mins_since_midnight)
+                    .min()
+            })
+            .unwrap_or(DEFAULT_START_MINS)
     }
-}
 
-fn default_start_mins() -> i32 {
-    DEFAULT_START_MINS
+    pub fn get_end_mins(&self, date: &str) -> i32 {
+        let start_mins = self.get_start_mins(date);
+        let minimum_end_mins = start_mins + WORK_DAY_DURATION_MINS as i32;
+        self.tasks
+            .get(date)
+            .and_then(|tasks| {
+                tasks
+                    .iter()
+                    .map(|task| task.start_mins_since_midnight() + task.duration_mins as i32)
+                    .max()
+            })
+            .map_or(minimum_end_mins, |latest_task_end| {
+                minimum_end_mins.max(latest_task_end)
+            })
+    }
 }
 
 impl Default for AppData {
     fn default() -> Self {
         Self {
             tasks: HashMap::new(),
-            start_mins: DEFAULT_START_MINS,
-            daily_start_mins: HashMap::new(),
         }
     }
 }
@@ -163,5 +174,80 @@ mod tests {
             start_time: "12:00 PM".to_string(),
         };
         assert_eq!(task4.start_mins_relative_to(DEFAULT_START_MINS), 240); // 12:00 PM is noon, 4 hours after 8 AM
+    }
+
+    #[test]
+    fn test_timeline_start_uses_earliest_task_for_each_date() {
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "2026-10-27".to_string(),
+            vec![
+                TaskRecord {
+                    id: "later".to_string(),
+                    name: "Later".to_string(),
+                    duration_mins: 30,
+                    start_time: "09:00 AM".to_string(),
+                },
+                TaskRecord {
+                    id: "earlier".to_string(),
+                    name: "Earlier".to_string(),
+                    duration_mins: 30,
+                    start_time: "07:30 AM".to_string(),
+                },
+            ],
+        );
+        tasks.insert(
+            "2026-10-28".to_string(),
+            vec![TaskRecord {
+                id: "another-day".to_string(),
+                name: "Another day".to_string(),
+                duration_mins: 30,
+                start_time: "10:00 AM".to_string(),
+            }],
+        );
+        let data = AppData { tasks };
+
+        assert_eq!(data.get_start_mins("2026-10-27"), 450);
+        assert_eq!(data.get_start_mins("2026-10-28"), 600);
+        assert_eq!(data.get_start_mins("2026-10-29"), DEFAULT_START_MINS);
+    }
+
+    #[test]
+    fn test_timeline_end_expands_for_long_days() {
+        let data = AppData {
+            tasks: HashMap::from([(
+                "2026-10-27".to_string(),
+                vec![TaskRecord {
+                    id: "long-day".to_string(),
+                    name: "Long day".to_string(),
+                    duration_mins: 8 * 60 + 30,
+                    start_time: "07:30 AM".to_string(),
+                }],
+            )]),
+        };
+
+        assert_eq!(data.get_start_mins("2026-10-27"), 450);
+        assert_eq!(data.get_end_mins("2026-10-27"), 960);
+    }
+
+    #[test]
+    fn test_legacy_start_offsets_are_ignored_when_loading() {
+        let data: AppData = serde_json::from_str(
+            r#"{
+                "tasks": {
+                    "2026-10-27": [{
+                        "id": "first",
+                        "name": "First",
+                        "duration_mins": 30,
+                        "start_time": "07:30 AM"
+                    }]
+                },
+                "start_mins": 600,
+                "daily_start_mins": {"2026-10-27": 660}
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(data.get_start_mins("2026-10-27"), 450);
     }
 }

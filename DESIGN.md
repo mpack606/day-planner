@@ -14,9 +14,9 @@ This document outlines the design and requirements for the Day Planner JIRA time
 
 ## Features
 
-- **Day Timeline**: Visual representation of the workday from 8:00 AM to 4:00 PM.
+- **Day Timeline**: Starts at 8:00 AM when there are no tasks, otherwise at the earliest task; spans at least eight hours and extends through the latest task end.
 - **Task Management**: Simple string-based entry for tasks (e.g., "WMI-12345 DB Update") with time spent in "3h 25m" format.
-- **Automatic Gap Calculation**: Dynamically computes and displays unused time between reported tasks within the 8 AM - 4 PM window.
+- **Automatic Gap Calculation**: Dynamically computes and displays unused time between reported tasks within the timeline bounds.
 - **Date Browsing**: Support for navigating through past and future days to view or add records.
 - **Persistent Storage**: Every change is immediately synchronized with the underlying JSON file.
 - **Date-Specific Records**: Tasks are organized and saved for the specific date they were reported on.
@@ -28,7 +28,7 @@ This document outlines the design and requirements for the Day Planner JIRA time
 ## UI
 
 - **TUI Interface**: A terminal-based user interface using a block-based layout.
-- **Vertical Timeline**: Situated on the left side, showing 1-hour increments with spacing for visual alignment.
+- **Vertical Timeline**: Situated on the left side, showing task and gap start times plus the timeline end time.
 - **Task Blocks**: Rectangular boxes signifying reported tasks, placed proportionately next to the timeline according to their duration.
 - **Input Area**: A dedicated box at the bottom for entering new task records.
 - **Header**: Displays the currently viewed date in the format: "Wed 18 Mar 2026".

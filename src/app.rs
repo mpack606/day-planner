@@ -1,6 +1,5 @@
 use crate::models::{
-    AppData, TaskRecord, WORK_DAY_DURATION_MINS, get_data_path, load_data, mins_to_time_string,
-    save_data,
+    AppData, TaskRecord, get_data_path, load_data, mins_to_time_string, save_data,
 };
 use chrono::{Local, NaiveDate};
 use regex::Regex;
@@ -227,27 +226,28 @@ impl App {
     pub fn empty_slots(&self) -> Vec<EmptySlot> {
         let date_str = self.current_date.to_string();
         let start_mins = self.data.get_start_mins(&date_str);
+        let end_mins = self.data.get_end_mins(&date_str);
         let mut tasks = self.data.tasks.get(&date_str).cloned().unwrap_or_default();
         tasks.sort_by_key(|task| task.start_mins_relative_to(start_mins));
 
         let mut slots = Vec::new();
-        let mut current_min = 0;
+        let mut current_mins = start_mins;
 
         for task in tasks {
-            let task_start = task.start_mins_relative_to(start_mins);
-            if task_start > current_min {
+            let task_start = task.start_mins_since_midnight();
+            if task_start > current_mins {
                 slots.push(EmptySlot {
-                    start_mins: start_mins + current_min,
-                    duration_mins: (task_start - current_min) as u32,
+                    start_mins: current_mins,
+                    duration_mins: (task_start - current_mins) as u32,
                 });
             }
-            current_min = current_min.max(task_start + task.duration_mins as i32);
+            current_mins = current_mins.max(task_start + task.duration_mins as i32);
         }
 
-        if current_min < WORK_DAY_DURATION_MINS as i32 {
+        if current_mins < end_mins {
             slots.push(EmptySlot {
-                start_mins: start_mins + current_min,
-                duration_mins: (WORK_DAY_DURATION_MINS as i32 - current_min) as u32,
+                start_mins: current_mins,
+                duration_mins: (end_mins - current_mins) as u32,
             });
         }
 
@@ -427,7 +427,9 @@ impl App {
                         .tasks
                         .get(&date_str)
                         .and_then(|tasks| {
-                            tasks.iter().max_by_key(|t| t.start_mins_since_midnight())
+                            tasks.iter().max_by_key(|task| {
+                                task.start_mins_since_midnight() + task.duration_mins as i32
+                            })
                         })
                         .map(|last_task| {
                             mins_to_time_string(
@@ -473,47 +475,40 @@ impl App {
         }
     }
 
-    pub fn shift_start_time(&mut self, delta_mins: i32) {
-        let date_str = self.current_date.to_string();
-        let current_start = self.data.get_start_mins(&date_str);
-        let new_start = (current_start + delta_mins).clamp(0, 1410); // 1410 = 23:30
-        self.data.daily_start_mins.insert(date_str, new_start);
-        self.save();
-    }
-
     pub fn fill_gaps(&mut self, task_name: String) {
         let date_str = self.current_date.to_string();
         let start_mins = self.data.get_start_mins(&date_str);
+        let end_mins = self.data.get_end_mins(&date_str);
 
         let mut tasks = self.data.tasks.get(&date_str).cloned().unwrap_or_default();
         tasks.sort_by_key(|t| t.start_mins_relative_to(start_mins));
 
         let mut new_tasks = Vec::new();
-        let mut current_min = 0; // Relative to start_mins
+        let mut current_mins = start_mins;
 
         for task in tasks {
-            let task_start_relative = task.start_mins_relative_to(start_mins);
-            if task_start_relative > current_min {
+            let task_start = task.start_mins_since_midnight();
+            if task_start > current_mins {
                 // There is a gap
-                let gap_duration = (task_start_relative - current_min) as u32;
+                let gap_duration = (task_start - current_mins) as u32;
                 new_tasks.push(TaskRecord {
                     id: Uuid::new_v4().to_string(),
                     name: task_name.clone(),
                     duration_mins: gap_duration,
-                    start_time: mins_to_time_string(start_mins + current_min),
+                    start_time: mins_to_time_string(current_mins),
                 });
             }
             new_tasks.push(task.clone());
-            current_min = task_start_relative + task.duration_mins as i32;
+            current_mins = current_mins.max(task_start + task.duration_mins as i32);
         }
 
-        if current_min < WORK_DAY_DURATION_MINS as i32 {
-            let gap_duration = (WORK_DAY_DURATION_MINS as i32 - current_min) as u32;
+        if current_mins < end_mins {
+            let gap_duration = (end_mins - current_mins) as u32;
             new_tasks.push(TaskRecord {
                 id: Uuid::new_v4().to_string(),
                 name: task_name.clone(),
                 duration_mins: gap_duration,
-                start_time: mins_to_time_string(start_mins + current_min),
+                start_time: mins_to_time_string(current_mins),
             });
         }
 
@@ -525,7 +520,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{DEFAULT_START_MINS, TaskRecord};
+    use crate::models::{TaskRecord, WORK_DAY_DURATION_MINS};
     use std::collections::HashMap;
 
     #[test]
@@ -553,11 +548,7 @@ mod tests {
         );
 
         let app = App {
-            data: AppData {
-                tasks,
-                start_mins: DEFAULT_START_MINS,
-                daily_start_mins: HashMap::new(),
-            },
+            data: AppData { tasks },
             storage_path: PathBuf::from("test_data.json"),
             current_date: date,
             input: Input::default(),
@@ -576,36 +567,29 @@ mod tests {
     }
 
     #[test]
-    fn test_daily_start_time_shift() {
-        let date1 = NaiveDate::from_ymd_opt(2023, 10, 27).unwrap();
-        let date2 = NaiveDate::from_ymd_opt(2023, 10, 28).unwrap();
-
-        let temp_dir = std::env::temp_dir();
-        let path = temp_dir.join("test_daily_start_time_shift.json");
-
+    fn test_empty_slots_use_earliest_task_and_dynamic_day_length() {
+        let date = NaiveDate::from_ymd_opt(2026, 10, 27).unwrap();
+        let date_str = date.to_string();
+        let path = std::env::temp_dir().join("test_dynamic_timeline_slots.json");
         let mut app = App::with_path(path.clone());
-        app.current_date = date1;
-
-        // Default should be DEFAULT_START_MINS (8:00 AM)
-        assert_eq!(
-            app.data.get_start_mins(&date1.to_string()),
-            DEFAULT_START_MINS
+        app.current_date = date;
+        app.data.tasks.insert(
+            date_str,
+            vec![TaskRecord {
+                id: "early".to_string(),
+                name: "Early task".to_string(),
+                duration_mins: 7 * 60,
+                start_time: "07:30 AM".to_string(),
+            }],
         );
+
         assert_eq!(
-            app.data.get_start_mins(&date2.to_string()),
-            DEFAULT_START_MINS
+            app.empty_slots(),
+            vec![EmptySlot {
+                start_mins: 14 * 60 + 30,
+                duration_mins: 60,
+            }]
         );
-
-        // Shift date1 by 30 mins
-        app.shift_start_time(30);
-        assert_eq!(app.data.get_start_mins(&date1.to_string()), 510);
-        assert_eq!(app.data.get_start_mins(&date2.to_string()), 480);
-
-        // Switch to date2 and shift by -60 mins
-        app.current_date = date2;
-        app.shift_start_time(-60);
-        assert_eq!(app.data.get_start_mins(&date1.to_string()), 510);
-        assert_eq!(app.data.get_start_mins(&date2.to_string()), 420);
 
         if path.exists() {
             let _ = std::fs::remove_file(path);
@@ -667,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_submit_with_shifted_day_start() {
+    fn test_untimed_task_appends_after_latest_task_end() {
         let date = NaiveDate::from_ymd_opt(2023, 10, 27).unwrap();
         let temp_dir = std::env::temp_dir();
         let path = temp_dir.join("test_handle_submit_with_shifted_day_start.json");
@@ -676,15 +660,30 @@ mod tests {
         app.current_date = date;
         app.input_mode = true;
 
-        // Shift day start to 7:00 AM
-        app.shift_start_time(-60);
+        app.data.tasks.insert(
+            date.to_string(),
+            vec![
+                TaskRecord {
+                    id: "long".to_string(),
+                    name: "Long".to_string(),
+                    duration_mins: 5 * 60,
+                    start_time: "08:00 AM".to_string(),
+                },
+                TaskRecord {
+                    id: "later-start".to_string(),
+                    name: "Later start".to_string(),
+                    duration_mins: 30,
+                    start_time: "10:00 AM".to_string(),
+                },
+            ],
+        );
 
         app.input = Input::new("Task 1 30m".to_string());
         app.handle_submit();
 
         let date_str = date.to_string();
         let tasks = app.data.tasks.get(&date_str).unwrap();
-        assert_eq!(tasks[0].start_time, "07:00 AM");
+        assert_eq!(tasks[2].start_time, "01:00 PM");
 
         if path.exists() {
             let _ = std::fs::remove_file(path);
@@ -911,8 +910,8 @@ mod tests {
             .iter()
             .find(|task| task.id != "second" && task.name == "Second")
             .unwrap();
-        assert_eq!(copied.start_time, "09:00 AM");
-        assert_eq!(copied.duration_mins, 60);
+        assert_eq!(copied.start_time, "10:30 AM");
+        assert_eq!(copied.duration_mins, 360);
 
         if path.exists() {
             let _ = std::fs::remove_file(path);
@@ -958,6 +957,43 @@ mod tests {
 
         let reloaded = App::with_path(path.clone());
         assert_eq!(reloaded.data.tasks.get(&date_str).unwrap().len(), 1);
+
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn test_deleting_earliest_task_recomputes_timeline_start() {
+        let date = NaiveDate::from_ymd_opt(2026, 10, 6).unwrap();
+        let date_str = date.to_string();
+        let path =
+            std::env::temp_dir().join(format!("test_delete_earliest_task_{}.json", Uuid::new_v4()));
+        let mut app = App::with_path(path.clone());
+        app.current_date = date;
+        app.data.tasks.insert(
+            date_str,
+            vec![
+                TaskRecord {
+                    id: "earliest".to_string(),
+                    name: "Earliest".to_string(),
+                    duration_mins: 30,
+                    start_time: "07:30 AM".to_string(),
+                },
+                TaskRecord {
+                    id: "later".to_string(),
+                    name: "Later".to_string(),
+                    duration_mins: 30,
+                    start_time: "10:00 AM".to_string(),
+                },
+            ],
+        );
+
+        assert_eq!(app.data.get_start_mins(&date.to_string()), 450);
+        app.enter_delete_mode();
+        app.confirm_delete_selection();
+
+        assert_eq!(app.data.get_start_mins(&date.to_string()), 600);
 
         if path.exists() {
             let _ = std::fs::remove_file(path);
